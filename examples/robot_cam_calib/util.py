@@ -1,7 +1,7 @@
 import torch
 import time
-import rospy
-from ar_track_alvar_msgs.msg import AlvarMarkers
+#import rospy
+#from ar_track_alvar_msgs.msg import AlvarMarkers
 from copy import deepcopy as copy
 import numpy as np
 import torch
@@ -96,33 +96,23 @@ class ArMarker(object):
         return pose
 
 
-def compute_loss(t_B_G, r_B_G, t_C_A, r_C_A, t_G_A, q_G_A, t_B_C, q_B_C, criterion, rot_loss_w=0.0):
-    pred_r_B_C, _ = quat2mat(q_B_C)
-    pred_r_B_C = pred_r_B_C[0]
+def compute_loss(t_B_G, r_B_G, t_C_A, r_C_A, t_G_C, q_G_C, criterion, rot_loss_w=0.0):
 
-    pred_r_G_A, _ = quat2mat(q_G_A)
-    pred_r_G_A = pred_r_G_A[0]
+    pred_r_G_C, _ = quat2mat(q_G_C)
+    pred_r_G_C = pred_r_G_C[0]
 
-    # for B-->G-->A
+    # for B-->G-->C-->A
     pred_t_B_A = torch.zeros_like(t_B_G)
-    # for B-->C-->A
-    pred_t_C_A = torch.zeros_like(t_B_G)
-    # for B-->G-->A
-    pred_r_B_G_A = torch.zeros_like(r_B_G)
-    # for B-->C-->A
-    pred_r_B_C_A = torch.zeros_like(r_B_G)
+    # for B-->G-->C-->A
+    pred_r_B_A = torch.zeros_like(r_B_G)
 
     for i in range(t_B_G.shape[0]):
-        pred_t_B_A[i] = t_B_G[i] + torch.mm(r_B_G[i], t_G_A.t()).t()
-        pred_t_C_A[i] = torch.mm(pred_r_B_C.t(), (pred_t_B_A[i] - t_B_C).t()).t()
-        pred_r_B_G_A[i] = torch.mm(r_B_G[i], pred_r_G_A)
-        pred_r_B_C_A[i] = torch.mm(pred_r_B_C, r_C_A[i])
+        r_B_C = torch.mm(r_B_G[i], pred_r_G_C)
+        pred_t_B_A[i] = t_B_G[i] + torch.mm(r_B_G[i], t_G_C.t()).t() + torch.mm(r_B_C, t_C_A[i].reshape(-1,1)).t()
 
-    norm_pred_t_C_A = pred_t_C_A / pred_t_C_A.norm(dim=1).reshape(-1,1)
-    norm_t_C_A = t_C_A / t_C_A.norm(dim=1).reshape(-1,1)
-    loss = criterion(norm_pred_t_C_A, norm_t_C_A).mean(dim=1)
+    std = pred_t_B_A.std(dim=0)
 
-    return loss, loss.mean()
+    return None, std.sum()
 
         
         

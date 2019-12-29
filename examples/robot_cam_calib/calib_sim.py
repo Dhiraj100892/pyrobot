@@ -1,6 +1,7 @@
+# In this case the camera is attached to gripper of
 # for comeplte calibratio, in this we will consider base(B), camera(C), gripper(G) and AR Tag(A) frames
 # trasform from B<-->G and C<-->A is known
-# need to figure out transform between G<-->A and B<-->C
+# need to figure out transform between G<-->C and B<-->A
 # P_X_Y --> represent origin of Y frame in X frame of reference
 
 import torch
@@ -33,57 +34,52 @@ class GetCameraExtrensics(object):
     # data set generator
     def generate_data(self, num_points, noise_max, region_g, region_a, region_c):
         # we need to find out these values
-        self.gt_rot_G_A, self.gt_trans_G_A = get_random_rot_trans(scale=region_a)
-        self.gt_rot_B_C, self.gt_trans_B_C = get_random_rot_trans(scale=region_c)
+        self.gt_rot_G_C, self.gt_trans_G_C = get_random_rot_trans(scale=region_a)
+        self.gt_rot_B_A, self.gt_trans_B_A = get_random_rot_trans(scale=region_c)
 
         # generate data for training 
         self.rot_B_G, self.trans_B_G = get_random_rot_trans(num=num_points, scale =region_g)
-        self.rot_B_A, self.trans_B_A = torch.zeros_like(self.rot_B_G), torch.zeros_like(self.trans_B_G)
         self.rot_C_A, self.trans_C_A = torch.zeros_like(self.rot_B_G), torch.zeros_like(self.trans_B_G)
         for i in range(num_points):
-            self.trans_B_A[i] = self.trans_B_G[i] + torch.mm(self.rot_B_G[i], self.gt_trans_G_A.t()).t()
-            self.trans_C_A[i] = torch.mm(self.gt_rot_B_C.t(), (self.trans_B_A[i] - self.gt_trans_B_C).t()).t() + noise_max * torch.empty(1,3).uniform_(-1,1)
-            self.rot_B_A[i] = torch.mm(self.rot_B_G[i], self.gt_rot_G_A)
-            self.rot_C_A[i] = torch.mm(self.gt_rot_B_C.t(),self.rot_B_A[i])
+            rot_B_C = torch.mm(self.rot_B_G[i], self.gt_rot_G_C)
+            self.rot_C_A[i] = torch.mm(rot_B_C.t(), self.gt_rot_B_A)
+            trans_B_C = self.trans_B_G[i] + torch.mm(self.rot_B_G[i], self.gt_trans_G_C.t()).t()
+            trans_C_A_in_B_frame = self.gt_trans_B_A - trans_B_C
+            self.trans_C_A[i] = torch.mm(rot_B_C.t(), trans_C_A_in_B_frame.t()).t()
 
     # optimize the parameters
     def optimize(self, num_iter, rot_loss_w, vis):
         # start with some random guess
-        quat_B_C = torch.rand(1,3).requires_grad_(True)
-        trans_B_C = torch.rand(1,3).requires_grad_(True)
-        quat_G_A = torch.rand(1,3).requires_grad_(True)
-        trans_G_A = torch.rand(1,3).requires_grad_(True)
-        optimizer = optim.Adam([quat_B_C, trans_B_C, trans_G_A, quat_G_A], lr=0.1)
+        quat_G_C = torch.rand(1,3).requires_grad_(True)
+        trans_G_C = torch.rand(1,3).requires_grad_(True)
+        optimizer = optim.Adam([quat_G_C, trans_G_C], lr=0.1)
         criterion = torch.nn.MSELoss(reduction='none')
-        best_quat_B_C, best_trans_B_C, best_loss = None, None, None
+        best_quat_G_C, best_trans_G_C, best_loss = None, None, None
 
         ###################
-        # optimize the B<-->C & G<-->A
+        # optimize the G<-->C
         for it in range(num_iter):
-            _, loss = compute_loss(self.trans_B_G, self.rot_B_G, self.trans_C_A, self.rot_C_A, trans_G_A, quat_G_A,
-                                   trans_B_C, quat_B_C, criterion, rot_loss_w)
+            _, loss = compute_loss(self.trans_B_G, self.rot_B_G, self.trans_C_A, self.rot_C_A, trans_G_C, quat_G_C,
+                                   criterion, rot_loss_w)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             if best_loss is None or best_loss > loss.item():
                 best_loss = loss.item()
-                best_quat_B_C = quat_B_C.detach().numpy() 
-                best_trans_B_C = trans_B_C[0].detach().numpy()
-                best_trans_G_A = trans_G_A[0].detach().numpy()
+                best_quat_G_C = quat_G_C.detach().numpy()
+                best_trans_G_C = trans_G_C[0].detach().numpy()
 
             print("iter = {:04d} loss = {}".format(it, loss.item()))
 
-        best_rot_B_C, best_quat_B_C = quat2mat(torch.from_numpy(best_quat_B_C))
-        best_rot_B_C, best_quat_B_C = best_rot_B_C[0].detach().numpy(), best_quat_B_C[0].detach().numpy()
+        best_rot_G_C, best_quat_G_C = quat2mat(torch.from_numpy(best_quat_G_C))
+        best_rot_G_C, best_quat_G_C = best_rot_G_C[0].detach().numpy(), best_quat_G_C[0].detach().numpy()
 
-        print("\n for B<-->C ")
-        print(" org_rot = {} \n pred_rot = {}".format(self.gt_rot_B_C.numpy(), best_rot_B_C))
-        print(" org_trans = {} \n pred_trans = {}".format(self.gt_trans_B_C.numpy(), best_trans_B_C))
+        print("\n for G<-->C ")
+        print(" org_rot = {} \n pred_rot = {}".format(self.gt_rot_G_C.numpy(), best_rot_G_C))
+        print(" org_trans = {} \n pred_trans = {}".format(self.gt_trans_G_C.numpy(), best_trans_G_C))
 
-        print("\n for G<-->A ")
-        print("org_trans = {} \n pred_trans = {}".format(self.gt_trans_G_A.numpy(), best_trans_G_A))
-
+        '''
         # plot the points for visualization
         if vis:
             trans_B_G_A = self.trans_B_G.numpy().reshape(-1,3) + np.array([np.matmul(self.rot_B_G[i].numpy(),best_trans_G_A.reshape(-1,3).T).T for i in range(self.num_points)]).reshape(-1,3)
@@ -95,6 +91,7 @@ class GetCameraExtrensics(object):
             scatter2_proxy = matplotlib.lines.Line2D([0],[0], linestyle="none", c='red', marker = 'o')
             ax.legend([scatter1_proxy, scatter2_proxy], ['Base to Ar from Gripper', 'Base to Ar from Camera'], numpoints = 1)
             plt.show()
+        '''
 
 
 if __name__ == "__main__":
@@ -108,7 +105,7 @@ if __name__ == "__main__":
                                            ' gripper', type=float, default=0.1)
     parser.add_argument('--region_c', help='diameter of sphere in which location of camera will be sampled wrt'
                                            ' robot base', type=float, default=5.0)
-    parser.add_argument('--vis', action='store_true', default=False, help='for visualizing data pooints after'
+    parser.add_argument('--vis', action='store_true', default=False, help='for visualizing data points after'
                                                                           ' calibration')
     parser.add_argument('--num_iter', help='number of iteration of optimization', type=int, default=1000)
 
