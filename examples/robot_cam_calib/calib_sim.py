@@ -53,14 +53,13 @@ class GetCameraExtrensics(object):
         quat_G_C = torch.rand(1,3).requires_grad_(True)
         trans_G_C = torch.rand(1,3).requires_grad_(True)
         optimizer = optim.Adam([quat_G_C, trans_G_C], lr=0.1)
-        criterion = torch.nn.MSELoss(reduction='none')
         best_quat_G_C, best_trans_G_C, best_loss = None, None, None
 
         ###################
         # optimize the G<-->C
         for it in range(num_iter):
-            _, loss = compute_loss(self.trans_B_G, self.rot_B_G, self.trans_C_A, self.rot_C_A, trans_G_C, quat_G_C,
-                                   criterion, rot_loss_w)
+            _, loss = compute_loss(self.trans_B_G, self.rot_B_G, self.trans_C_A, self.rot_C_A, trans_G_C, quat_G_C
+                                   , rot_loss_w)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -79,26 +78,28 @@ class GetCameraExtrensics(object):
         print(" org_rot = {} \n pred_rot = {}".format(self.gt_rot_G_C.numpy(), best_rot_G_C))
         print(" org_trans = {} \n pred_trans = {}".format(self.gt_trans_G_C.numpy(), best_trans_G_C))
 
-        '''
         # plot the points for visualization
         if vis:
-            trans_B_G_A = self.trans_B_G.numpy().reshape(-1,3) + np.array([np.matmul(self.rot_B_G[i].numpy(),best_trans_G_A.reshape(-1,3).T).T for i in range(self.num_points)]).reshape(-1,3)
-            trans_B_C_A = np.matmul(best_rot_B_C,self.trans_C_A.numpy().reshape(-1,3).T).T + best_trans_B_C.reshape(-1,3) 
+            rot_B_G_C = np.array([np.matmul(self.rot_B_G[i].numpy(), best_rot_G_C) for i in range(self.num_points)])
+            trans_B_G_C_A = self.trans_B_G.numpy().reshape(-1,3) +\
+                            np.array([np.matmul(self.rot_B_G[i].numpy(),best_trans_G_C.reshape(-1,3).T).T
+                                      for i in range(self.num_points)]).reshape(-1,3) + \
+                            np.array([np.matmul(rot_B_G_C[i], self.trans_C_A[i].t().numpy())
+                                      for i in range(self.num_points)]).reshape(-1,3)
             ax = plt.axes(projection='3d')
-            ax.scatter3D(trans_B_G_A[:,0], trans_B_G_A[:,1], trans_B_G_A[:,2])
-            ax.scatter3D(trans_B_C_A[:,0], trans_B_C_A[:,1], trans_B_C_A[:,2], color='red')
+            ax.scatter3D(trans_B_G_C_A[:,0], trans_B_G_C_A[:,1], trans_B_G_C_A[:,2])
             scatter1_proxy = matplotlib.lines.Line2D([0],[0], linestyle="none", marker = 'o')
-            scatter2_proxy = matplotlib.lines.Line2D([0],[0], linestyle="none", c='red', marker = 'o')
-            ax.legend([scatter1_proxy, scatter2_proxy], ['Base to Ar from Gripper', 'Base to Ar from Camera'], numpoints = 1)
+            ax.legend([scatter1_proxy], ['Base to Ar from Gripper & Camera'], numpoints = 1)
             plt.show()
-        '''
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process args for calibration testing")
     parser.add_argument('--num_data', help='number of data points to generate for training', type=int, default=100)
-    parser.add_argument('--noise_max', help='maximum noise to be added to location data points in meter', type=float, default=0.01)
-    parser.add_argument('--rot_loss_w', help='weight on rotational loss for optimizing the camera extrensic parameters', type=float, default=0.0)
+    parser.add_argument('--noise_max', help='maximum noise to be added to location data points in meter', type=float,
+                        default=0.01)
+    parser.add_argument('--rot_loss_w', help='weight on rotational loss for optimizing the camera extrensic parameters',
+                        type=float, default=0.0)
     parser.add_argument('--region_g', help='diameter of sphere in which location of gripper will be sampled wrt '
                                            'robot base', type=float, default=1.0)
     parser.add_argument('--region_a', help='diameter of sphere in which location of AR marker will be sampled wrt'

@@ -1,11 +1,12 @@
 import torch
 import time
-#import rospy
-#from ar_track_alvar_msgs.msg import AlvarMarkers
+import rospy
+from ar_track_alvar_msgs.msg import AlvarMarkers
 from copy import deepcopy as copy
 import numpy as np
 import torch
 from IPython import embed
+
 
 def quat2rot(quat, format='wxyz'):
     if format == 'wxyz':
@@ -26,6 +27,7 @@ def quat2rot(quat, format='wxyz'):
                           2 * xz - 2 * wy, 2 * wx + 2 * yz, w2 - x2 - y2 + z2], dim=1).reshape(B, 3, 3)
     return rotMat
 
+
 def quat2mat(quat):
     """
     stolen from https://github.com/ClementPinard/SfmLearner-Pytorch/blob/8b8398433709b8aa77e021caea64ab48207c8ef5/inverse_warp.py#L112
@@ -39,6 +41,7 @@ def quat2mat(quat):
     norm_quat = norm_quat/norm_quat.norm(p=2, dim=1, keepdim=True)
     rotMat = quat2rot(norm_quat, format='wxyz')
     return rotMat, norm_quat
+
 
 def get_random_rot_trans(num=1, scale=1):
     """Generate random rotation matrix and translation vector
@@ -80,6 +83,10 @@ class ArMarker(object):
                 self.marker_dict = marker_dict
     
     def get_pose(self):
+        """
+
+        :return:
+        """
         self.record = True
         start_time = time.time()
         pose = None
@@ -96,8 +103,18 @@ class ArMarker(object):
         return pose
 
 
-def compute_loss(t_B_G, r_B_G, t_C_A, r_C_A, t_G_C, q_G_C, criterion, rot_loss_w=0.0):
+def compute_loss(t_B_G, r_B_G, t_C_A, r_C_A, t_G_C, q_G_C, rot_loss_w=0.0):
+    """
 
+    :param t_B_G:
+    :param r_B_G:
+    :param t_C_A:
+    :param r_C_A:
+    :param t_G_C:
+    :param q_G_C:
+    :param rot_loss_w:
+    :return:
+    """
     pred_r_G_C, _ = quat2mat(q_G_C)
     pred_r_G_C = pred_r_G_C[0]
 
@@ -109,10 +126,13 @@ def compute_loss(t_B_G, r_B_G, t_C_A, r_C_A, t_G_C, q_G_C, criterion, rot_loss_w
     for i in range(t_B_G.shape[0]):
         r_B_C = torch.mm(r_B_G[i], pred_r_G_C)
         pred_t_B_A[i] = t_B_G[i] + torch.mm(r_B_G[i], t_G_C.t()).t() + torch.mm(r_B_C, t_C_A[i].reshape(-1,1)).t()
+        pred_r_B_A[i] = torch.mm(torch.mm(r_B_G[i], pred_r_G_C), r_C_A[i])
 
-    std = pred_t_B_A.std(dim=0)
-
-    return None, std.sum()
+    # NOTE: rot loss has to be relooked into, its not proper
+    std = torch.cat((pred_t_B_A.std(dim=0), rot_loss_w * pred_r_B_A.reshape(-1,9).std(dim=0)))
+    indv_loss = torch.norm(pred_t_B_A - pred_t_B_A.mean(), p=2, dim=1) + \
+                rot_loss_w * torch.norm(pred_r_B_A.reshape(-1,9) - pred_r_B_A.reshape(-1,9).mean(), p=2, dim=1)
+    return indv_loss, std.sum()
 
         
         
