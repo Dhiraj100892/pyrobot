@@ -6,7 +6,15 @@ from copy import deepcopy as copy
 import numpy as np
 import torch
 from IPython import embed
+import io
 
+import sys
+
+ros_path = '/opt/ros/kinetic/lib/python2.7/dist-packages'
+if ros_path in sys.path:
+    sys.path.remove(ros_path)
+    import cv2
+sys.path.append('/opt/ros/kinetic/lib/python2.7/dist-packages')
 
 def quat2rot(quat, format='wxyz'):
     if format == 'wxyz':
@@ -134,6 +142,15 @@ def compute_loss(t_B_G, r_B_G, t_C_A, r_C_A, t_G_C, q_G_C, rot_loss_w=0.0):
                 rot_loss_w * torch.norm(pred_r_B_A.reshape(-1,9) - pred_r_B_A.reshape(-1,9).mean(), p=2, dim=1)
     return indv_loss, std.sum()
 
+
+def get_img_from_fig(fig, dpi=180):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=180)
+    buf.seek(0)
+    img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+    buf.close()
+    img = cv2.imdecode(img_arr, 1)
+    return img
         
         
 

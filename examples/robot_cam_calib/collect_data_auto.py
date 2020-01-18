@@ -49,7 +49,7 @@ class RobotArDataCollectorAuto(object):
                     
                     # marker data
                     # record ar marker pose
-                    marker_pose = self.ar_marker.get_pose
+                    marker_pose = self.ar_marker.get_pose()
                     if marker_pose is None:
                         colored("Ar marker is not visible into image\n", "red")
                         continue

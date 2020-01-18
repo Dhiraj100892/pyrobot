@@ -38,7 +38,7 @@ class RobotArDataCollectorManual(object):
                 arm_pose = {'position':trans, 'orientation':rot}
 
                 # record ar marker pose
-                marker_pose = self.ar_marker.get_pose
+                marker_pose = self.ar_marker.get_pose()
                 if marker_pose is None:
                     colored("Ar marker is not visible into image, move arm so that marker is visible in image frame\n", "red")
                     continue
