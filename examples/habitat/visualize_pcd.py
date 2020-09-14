@@ -1,5 +1,5 @@
 from pyrobot import Robot
-
+import time
 import os
 import open3d
 
@@ -24,3 +24,14 @@ coord = open3d.create_mesh_coordinate_frame(1, [0, 0, 0])
 
 # visualize point cloud
 open3d.visualization.draw_geometries([pcd, coord])
+
+# also test the speed
+num_calls = 1000
+time_list = []
+for _ in range(num_calls):
+    start_time = time.time()
+    _, _ = bot.camera.get_current_pcd(in_cam=False)
+    stop_time = time.time()
+    time_list.append(stop_time-start_time)
+
+print("Point in base frame speed = {:.1f} hz".format(float(num_calls) /sum(time_list) ))
