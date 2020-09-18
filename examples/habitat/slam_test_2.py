@@ -53,6 +53,12 @@ class Slam(object):
         self.start_vis = False
         self.vis_count = 0
 
+        # rotate intial to get the whole map
+        for _ in range(7):
+            self.robot.base.go_to_relative((0,0,np.pi/4))
+            self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
+                                        self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
+
     def set_goal(self, goal):
         """
         goal is 3 len tuple with position in real world in robot start frame
