@@ -227,7 +227,8 @@ class Slam(object):
         # visualize distance to goal & map, robot current location, goal, short term goal, robot path #
         plt.subplot(1, num_plots, 3)
         # distance to goal & map
-        plt.imshow(self.planner.fmm_dist, origin='lower')
+        #plt.imshow(self.planner.fmm_dist, origin='lower')
+        plt.imshow(self.map_builder.map[:, :, 1] >= 1.0, origin='lower')
         # goal
         plt.plot(self.goal_loc_map[0], self.goal_loc_map[1], 'y*')
         # short term goal
