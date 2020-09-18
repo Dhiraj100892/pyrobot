@@ -31,13 +31,13 @@ class Slam(object):
         self.map_builder = mb()
 
         # initialize variable
-        self.init_state = self.robot.base.get_state()
+        self.init_state = self.robot.base.get_state('odom')
         self.prev_bot_state = (0, 0, 0)
         self.col_map = np.zeros((self.map_builder.map.shape[0], self.map_builder.map.shape[1]))
         self.robot_loc_list_map = np.array([self.real2map(
-            self.get_rel_state(self.robot.base.get_state(), self.init_state)[:2])])
+            self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)[:2])])
         self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
-                                    self.get_rel_state(self.robot.base.get_state(), self.init_state))
+                                    self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
 
         # for visualization purpose #
         self.save_folder = save_folder
@@ -87,7 +87,7 @@ class Slam(object):
 
         # get the short term goal
         self.robot_map_loc = self.real2map(
-            self.get_rel_state(self.robot.base.get_state(), self.init_state))
+            self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
         self.stg = self.planner.get_short_term_goal((self.robot_map_loc[1], self.robot_map_loc[0]))
 
         # convert goal from map space to robot space
@@ -105,7 +105,7 @@ class Slam(object):
         stg_real_g[0] += self.init_state[0]
         stg_real_g[1] += self.init_state[1]
 
-        self.robot_state = self.get_rel_state(self.robot.base.get_state(), self.init_state)
+        self.robot_state = self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)
         print("bot_state before executing action = {}".format(self.robot_state))
 
         # go to the location the robot
@@ -116,24 +116,24 @@ class Slam(object):
                                              + self.init_state[2]))
 
         print("bot_state after executing action = {}".format(
-            self.get_rel_state(self.robot.base.get_state(), self.init_state)))
+            self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)))
 
         # if robot collides
         if not exec:
             # add obstacle in front of  cur location
             self.col_map += self.get_collision_map(
-                self.get_rel_state(self.robot.base.get_state(), self.init_state),
+                self.get_rel_state(self.robot.base.get_state('odom'), self.init_state),
                 obstacle_size=(100, 100))
 
         # update map
         self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
-                                    self.get_rel_state(self.robot.base.get_state(), self.init_state))
+                                    self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
 
         # update robot location list
         self.robot_loc_list_map = np.concatenate((self.robot_loc_list_map,
                                                 np.array([
                                                     self.real2map(
-                                                        self.get_rel_state(self.robot.base.get_state(),
+                                                        self.get_rel_state(self.robot.base.get_state('odom'),
                                                                            self.init_state)[:2]
                                                     )])))
         self.prev_bot_state = self.robot_state
