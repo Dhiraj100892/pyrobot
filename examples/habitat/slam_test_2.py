@@ -25,10 +25,10 @@ import slam.depth_utils as du
 
 
 class Slam(object):
-    def __init__(self, robot, robot_rad=0.5, save_folder='.tmp'):
+    def __init__(self, robot, map_size, resolution, robot_rad=0.5, save_folder='.tmp'):
         self.robot = robot
         self.robot_rad = robot_rad * 100  # convert it into cm
-        self.map_builder = mb()
+        self.map_builder = mb(map_size, resolution)
 
         # initialize variable
         self.init_state = self.robot.base.get_state('odom')
@@ -86,7 +86,7 @@ class Slam(object):
 
         # call the planner
         self.planner = FMMPlanner(traversable,
-                                  step_size=int(step_size * 100 / self.map_builder.resolution))
+                                  step_size=int(step_size / self.map_builder.resolution))
 
         # set the goal
         self.planner.set_goal(self.goal_loc_map)
@@ -264,10 +264,10 @@ def main(args):
         robot = Robot("locobot")
         robot.camera.reset()
 
-    slam = Slam(robot)
+    slam = Slam(robot, args.map_size, args.resolution)
     slam.set_goal(args.goal)
     while True:
-        slam.take_step(step_size=0.25)
+        slam.take_step(step_size=args.step_size)
         slam.vis()
 
 if __name__ == "__main__":
@@ -276,6 +276,9 @@ if __name__ == "__main__":
         "--robot", help="Name of the robot [locobot, habitat]", type=str, default='habitat'
     )
     parser.add_argument("--goal", help="goal the robot should reach", nargs='+', type=float)
+    parser.add_argument("--map_size", help="lenght and with of map in cm", type=float, default=4000)
+    parser.add_argument("--resolution", help="per pixel resolution of map in cm", type=float, default=5)
+    parser.add_argument("--step_size", help="step size in cm", type=float, default=25)
 
     args = parser.parse_args()
     main(args)

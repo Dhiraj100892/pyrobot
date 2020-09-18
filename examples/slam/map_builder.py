@@ -12,8 +12,8 @@ class MapBuilder(object):
         self.obs_threshold = obs_thr
         self.z_bins = [agent_min_z, agent_max_z]
 
-        self.map = np.zeros((self.map_size_cm // self.resolution,
-                             self.map_size_cm // self.resolution,
+        self.map = np.zeros((int(self.map_size_cm // self.resolution),
+                             int(self.map_size_cm // self.resolution),
                              len(self.z_bins) + 1), dtype=np.float32)
 
     def update_map(self, pcd, pose):
