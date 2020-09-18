@@ -256,6 +256,7 @@ def main(args):
         robot = Robot("habitat", common_config=common_config)
     elif args.robot == 'locobot':
         robot = Robot("locobot")
+        robot.camera.reset()
 
     slam = Slam(robot)
     slam.set_goal(args.goal)
