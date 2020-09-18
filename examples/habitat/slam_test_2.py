@@ -25,10 +25,11 @@ import slam.depth_utils as du
 
 
 class Slam(object):
-    def __init__(self, robot, map_size, resolution, robot_rad=0.5, save_folder='.tmp'):
+    def __init__(self, robot, map_size, resolution, robot_rad, agent_min_z, agent_max_z, save_folder='.tmp'):
         self.robot = robot
-        self.robot_rad = robot_rad * 100  # convert it into cm
-        self.map_builder = mb(map_size, resolution)
+        self.robot_rad = robot_rad
+        self.map_builder = mb(map_size_cm=map_size, resolution=resolution, agent_min_z=agent_min_z,
+                              agent_max_z=agent_max_z)
 
         # initialize variable
         self.init_state = self.robot.base.get_state('odom')
@@ -231,15 +232,15 @@ class Slam(object):
         plt.plot(self.goal_loc_map[0], self.goal_loc_map[1], 'y*')
         # short term goal
         plt.plot(self.stg[1], self.stg[0], 'b*')
-        plt.plot(self.robot_map_loc[0], self.robot_map_loc[1], 'm.')
         plt.plot(self.robot_loc_list_map[:, 0], self.robot_loc_list_map[:, 1], 'r--')
 
         # draw heading of robot
-        R = np.array([[np.cos(self.robot_state[2]), np.sin(self.robot_state[2])],
-                      [-np.sin(self.robot_state[2]), np.cos(self.robot_state[2])]])
+        robot_state = self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)
+        R = np.array([[np.cos(robot_state[2]), np.sin(robot_state[2])],
+                      [-np.sin(robot_state[2]), np.cos(robot_state[2])]])
         global_tri_vertex = np.matmul(R.T, self.triangle_vertex.T).T
         map_global_tra_vertex = np.array(
-            [self.real2map((x[0] + self.robot_state[0], x[1] + self.robot_state[1]))
+            [self.real2map((x[0] + robot_state[0], x[1] + robot_state[1]))
              for x in global_tri_vertex])
         t1 = plt.Polygon(map_global_tra_vertex, color='red')
         plt.gca().add_patch(t1)
@@ -264,11 +265,12 @@ def main(args):
         robot = Robot("locobot")
         robot.camera.reset()
 
-    slam = Slam(robot, args.map_size, args.resolution)
+    slam = Slam(robot, args.map_size, args.resolution, args.robot_rad, args.agent_min_z, args.agent_max_z)
     slam.set_goal(args.goal)
     while True:
         slam.take_step(step_size=args.step_size)
         slam.vis()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Args for testing simple SLAM algorithm")
@@ -279,6 +281,9 @@ if __name__ == "__main__":
     parser.add_argument("--map_size", help="lenght and with of map in cm", type=float, default=4000)
     parser.add_argument("--resolution", help="per pixel resolution of map in cm", type=float, default=5)
     parser.add_argument("--step_size", help="step size in cm", type=float, default=25)
+    parser.add_argument("--robot_rad", help="robot radius in cm", type=float, default=25)
+    parser.add_argument("--agent_min_z", help="agent min height in cm", type=float, default=5)
+    parser.add_argument("--agent_max_z", help="robot max height in cm", type=float, default=70)
 
     args = parser.parse_args()
     main(args)

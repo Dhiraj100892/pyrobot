@@ -6,7 +6,7 @@ from IPython import embed
 
 class MapBuilder(object):
     def __init__(self, map_size_cm=4000, resolution=5, obs_thr=1,
-                 agent_min_z=0.05, agent_max_z=0.7):
+                 agent_min_z=5, agent_max_z=70):
         self.map_size_cm = map_size_cm
         self.resolution = resolution
         self.obs_threshold = obs_thr
