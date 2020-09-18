@@ -112,8 +112,7 @@ class LoCoBotCamera(object):
         pts = self._cam2pyrobot(pts, initial_rotation=initial_rotation)
         return pts, colors
 
-
-    def _cam2pyrobot(self, pts, initial_rotation=None):
+    def _cam2pyrobot_2(self, pts, initial_rotation=None):
         """
         here, points are  given in camera frame
         the thing to do next is to transform the points from camera frame into the
@@ -165,6 +164,54 @@ class LoCoBotCamera(object):
         # now do the final transformation and return the points
         pts = np.dot(pts, rot_habitat_origin_to_image_frame.T)
         pts = pts + relative_position
+        pts = ros_to_habitat_frame.T @ pts.T
+        pts = pts.T
+        return pts
+
+    def _cam2pyrobot(self, pts, initial_rotation=None):
+        """
+        here, points are  given in camera frame
+        the thing to do next is to transform the points from camera frame into the
+        global frame of pyrobot environment
+        This does not translate to what habitat thinks as origin,
+        because pyrobot's habitat-reference origin is `self.agent.init_state`
+        So, CAMERA frame -> HABITAT frame -> PYROBOT frame (robot base frame)
+        :param pts: point coordinates in camera frame
+                  (shape: :math:`[N, 3]`)
+        :param initial_rotation: a known initial rotation of the camera sensor
+                                 to calibrate habitat origin. The default value
+                                 is None which means it uses the Habitat-reported
+                                 value.
+
+        :type pts: np.ndarray
+        :type initial_rotation: float
+
+        :returns: pts
+
+                  pts: point coordinates in world frame
+                  (shape: :math:`[N, 3]`)
+
+        :rtype: np.ndarray
+        """
+
+        cur_state = self.agent.get_state()
+        cur_sensor_state = cur_state.sensor_states['rgb']
+        if initial_rotation is None:
+            initial_rotation = cur_state.rotation
+        rot_init_rotation = self._rot_matrix(initial_rotation)
+
+        ros_to_habitat_frame = np.array([[0.0, -1.0, 0.0],
+                                         [0.0, 0.0, -1.0],
+                                         [1.0, 0.0, 0.0]])
+
+        relative_position = cur_sensor_state.position - cur_state.position
+        relative_position = rot_init_rotation.T @ relative_position
+
+        cur_rotation = self._rot_matrix(cur_sensor_state.rotation)
+        cur_rotation = rot_init_rotation.T @ cur_rotation
+        # now do the final transformation and return the points
+        pts = np.dot(pts, cur_rotation.T)
+        pts = pts - relative_position
         pts = ros_to_habitat_frame.T @ pts.T
         pts = pts.T
         return pts

@@ -33,24 +33,18 @@ def get_dist(sx, sy, step_size):
 
 
 class FMMPlanner():
-    def __init__(self, traversible, num_rots, scale=1, step_size=5):
-        self.scale = scale
+    def __init__(self, traversable, step_size=5):
         self.step_size = step_size
-        self.traversible = traversible
-
-        self.angle_value = [0, 2.0 * np.pi / num_rots, -2.0 * np.pi / num_rots, 0]
-        self.du = int(self.step_size / (self.scale * 1.))
-        self.num_rots = num_rots
+        self.traversable = traversable
 
     def set_goal(self, goal):
         '''
         here basically calculating distance from goal, try to visualize dd to get more intution
         '''
-        traversible_ma = ma.masked_values(self.traversible * 1, 0)
-        goal_x, goal_y = int(goal[0] / (self.scale * 1.)), \
-                         int(goal[1] / (self.scale * 1.))
-        traversible_ma[goal_y, goal_x] = 0
-        dd = skfmm.distance(traversible_ma, dx=1)
+        traversable_ma = ma.masked_values(self.traversable * 1, 0)
+        goal_x, goal_y = int(goal[0]), int(goal[1])
+        traversable_ma[goal_y, goal_x] = 0
+        dd = skfmm.distance(traversable_ma, dx=1)
         dd_mask = np.invert(np.isnan(ma.filled(dd, np.nan)))
         dd = ma.filled(dd, np.max(dd) + 1)
         self.fmm_dist = dd
@@ -60,18 +54,18 @@ class FMMPlanner():
         state = [int(x) for x in state]
         # pad the map with
         # to handle corners pad the dist with step size and values equal to max
-        dist = np.pad(self.fmm_dist, self.du,
+        dist = np.pad(self.fmm_dist, self.step_size,
                       'constant', constant_values=self.fmm_dist.shape[0] ** 2)
         # take subset fo distance around the start, as its padded start should be corner instead of center
-        subset = dist[state[0]:state[0] + 2 * self.du + 1,
-                 state[1]:state[1] + 2 * self.du + 1]
+        subset = dist[state[0]:state[0] + 2 * self.step_size + 1,
+                 state[1]:state[1] + 2 * self.step_size + 1]
 
         # find the index which has minimum distance
         (stg_x, stg_y) = np.unravel_index(np.argmin(subset), subset.shape)
 
         # convert index from subset frame
-        return (stg_x + state[0] - self.du) + 0.5, \
-               (stg_y + state[1] - self.du) + 0.5
+        return (stg_x + state[0] - self.step_size) + 0.5, \
+               (stg_y + state[1] - self.step_size) + 0.5
 
     def get_short_term_goal(self, state):
         dx, dy = state[0] - int(state[0]), state[1] - int(state[1])
@@ -84,33 +78,33 @@ class FMMPlanner():
         state = [int(x) for x in state]
 
         # to handle corners pad the dist with step size and values equal to max
-        dist = np.pad(self.fmm_dist, self.du,
+        dist = np.pad(self.fmm_dist, self.step_size,
                       'constant', constant_values=self.fmm_dist.shape[0] ** 2)
 
         # take the subset of dist map centered around start, it considers start as top left corner because we pad it in previsous step
-        subset = dist[state[0]:state[0] + 2 * self.du + 1,
-                 state[1]:state[1] + 2 * self.du + 1]
+        subset = dist[state[0]:state[0] + 2 * self.step_size + 1,
+                 state[1]:state[1] + 2 * self.step_size + 1]
 
-        assert subset.shape[0] == 2 * self.du + 1 and \
-               subset.shape[1] == 2 * self.du + 1, \
+        assert subset.shape[0] == 2 * self.step_size + 1 and \
+               subset.shape[1] == 2 * self.step_size + 1, \
             "Planning error: unexpected subset shape {}".format(subset.shape)
 
         subset *= mask
         subset += (1 - mask) * self.fmm_dist.shape[0] ** 2
         # what this step is for
-        subset -= subset[self.du, self.du]
+        subset -= subset[self.step_size, self.step_size]
         ratio1 = subset / dist_mask
         subset[ratio1 < -1.5] = 1
 
-        trav = np.pad(self.traversible, self.du,
+        trav = np.pad(self.traversable, self.step_size,
                       'constant', constant_values=0)
 
-        subset_trav = trav[state[0]:state[0] + 2 * self.du + 1,
-                      state[1]:state[1] + 2 * self.du + 1]
-        traversible_ma = ma.masked_values(subset_trav * 1, 0)
-        goal_x, goal_y = self.du, self.du
-        traversible_ma[goal_y, goal_x] = 0
-        dd = skfmm.distance(traversible_ma, dx=1)
+        subset_trav = trav[state[0]:state[0] + 2 * self.step_size + 1,
+                      state[1]:state[1] + 2 * self.step_size + 1]
+        traversable_ma = ma.masked_values(subset_trav * 1, 0)
+        goal_x, goal_y = self.step_size, self.step_size
+        traversable_ma[goal_y, goal_x] = 0
+        dd = skfmm.distance(traversable_ma, dx=1)
         dd_mask = np.invert(np.isnan(ma.filled(dd, np.nan)))
         dd = ma.filled(dd, np.max(dd) + 1)
         subset_fmm_dist = dd
@@ -126,5 +120,5 @@ class FMMPlanner():
             replan = False
 
         # add 0.5 so that you go to the center of the cell
-        return (stg_x + state[0] - self.du) + 0.5, \
-               (stg_y + state[1] - self.du) + 0.5, replan
+        return (stg_x + state[0] - self.step_size) + 0.5, \
+               (stg_y + state[1] - self.step_size) + 0.5, replan

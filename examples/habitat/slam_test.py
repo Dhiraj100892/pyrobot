@@ -74,6 +74,17 @@ def get_collision_map(state, map, obstacle_size=(20, 20)):
     return col_map[pad_len:-pad_len, pad_len:-pad_len]
 
 
+def get_rel_state(cur_state, init_state):
+    # get relative in global frame
+    rel_X = cur_state[0] - init_state[0]
+    rel_Y = cur_state[1] - init_state[1]
+    # transfer from global frame to init frame
+    R = np.array([[np.cos(init_state[2]), np.sin(init_state[2])],
+                  [-np.sin(init_state[2]), np.cos(init_state[2])]])
+    rel_x, rel_y = np.matmul(R, np.array([rel_X, rel_Y]).reshape(-1, 1))
+    return rel_x[0], rel_y[0], cur_state[2] - init_state[2]
+
+
 # Please change this to match your habitat_sim repo's path
 path_to_habitat_scene = os.path.dirname(os.path.realpath(__file__))
 relative_path = "scenes/skokloster-castle.glb"
@@ -82,16 +93,15 @@ common_config = dict(scene_path=os.path.join(path_to_habitat_scene, relative_pat
 bot = Robot("habitat", common_config=common_config)
 
 map_builder = mb(bot)
-col_map = get_collision_map((11.487311108775993, -0.3395407211859647, 2.356193675930288),
-                            map_builder, obstacle_size=(100, 100))
+bot.base.go_to_absolute((0.2,0.0,np.pi/2))
+# fetch the init bot state
+init_state = bot.base.get_state()
 
-# fetch the point
-pts, colors = bot.camera.get_current_pcd(in_cam=False)
-map_builder.update_map()
+map_builder.update_map(get_rel_state(bot.base.get_state(), init_state))
 
 goal_loc_real = (10, 10)
 goal_loc_map = real2map(goal_loc_real, map_builder)
-bot_loc_list_map = np.array([real2map(bot.base.get_state()[:2], map_builder)])
+bot_loc_list_map = np.array([real2map(get_rel_state(bot.base.get_state(), init_state)[:2], map_builder)])
 
 reached = False
 count = 0
@@ -113,7 +123,7 @@ while not reached:
     # explode the map
     obstacle = map_builder.map[:, :, 1] >= 1.0
     # explode by robot shape
-    robot_radius, resolution = 25, 5
+    robot_radius, resolution = 50, 5
     selem = disk(robot_radius / resolution)
     traversible = binary_dilation(obstacle, selem) != True
 
@@ -123,15 +133,14 @@ while not reached:
     traversible = np.logical_and(traversible, np.logical_not(col_map_unknown))
 
     # call the planner
-    delts_rot = 10  # in degree
-    planner = FMMPlanner(traversible, 360 / delts_rot, step_size=5)
+    planner = FMMPlanner(traversible, step_size=5)
 
     # set the goal
     planner.set_goal(goal_loc_map)
 
     '''
     # get short term goal
-    bot_map_loc = real2map(bot.base.get_state(), map_builder)
+    bot_map_loc = real2map(get_rel_state(bot.base.get_state(), init_state), map_builder)
     stg = planner.get_short_term_goal((bot_map_loc[1], bot_map_loc[0]))
 
     # execute the goal on robot
@@ -140,13 +149,13 @@ while not reached:
     print("stg real = {}".format(stg_real))
 
     # first align the robot
-    bot_state= bot.base.get_state()
+    bot_state= get_rel_state(bot.base.get_state(), init_state)
     print("bot_state = {}".format(bot_state))
     exec = bot.base.go_to_absolute((bot_state[0], bot_state[1], np.arctan2(stg_real[1] - prev_bot_state[1],
                                                                            stg_real[0] - prev_bot_state[0])))
     if not exec:
         # add obstacle in front of  cur location
-        col_map += get_collision_map(bot.base.get_state(), map_builder, obstacle_size=(100,100))
+        col_map += get_collision_map(get_rel_state(bot.base.get_state(), init_state), map_builder, obstacle_size=(100,100))
 
         # go to prev location
         bot.base.go_to_absolute(prev_bot_state)
@@ -156,17 +165,17 @@ while not reached:
         # rotate around
         for i in np.arange(np.pi/4, 2*np.pi, np.pi/4):
             bot.base.go_to_relative((0.0,0.0,i))
-            map_builder.update_map()
+            map_builder.update_map(get_rel_state(bot.base.get_state(), init_state))
         continue
-    print("bot_state_after = {}".format(bot.base.get_state()))
+    print("bot_state_after = {}".format(get_rel_state(bot.base.get_state(), init_state)))
 
     # take observation and update map
-    map_builder.update_map()
+    map_builder.update_map(get_rel_state(bot.base.get_state(), init_state))
     '''
 
     # then replan it again
-    bot_map_loc = real2map(bot.base.get_state(), map_builder)
-    stg = planner.get_short_term_goal_2((bot_map_loc[1], bot_map_loc[0]))
+    bot_map_loc = real2map(get_rel_state(bot.base.get_state(), init_state), map_builder)
+    stg = planner.get_short_term_goal((bot_map_loc[1], bot_map_loc[0]))
 
     # execute the goal on robot
     stg_real = map2real([stg[1], stg[0]], map_builder)
@@ -175,18 +184,28 @@ while not reached:
 
     # go to the location the robot
     # prev_bot_state = bot_state
-    bot_state = bot.base.get_state()
-    print("bot_state = {}".format(bot.base.get_state()))
-    exec = bot.base.go_to_absolute((stg_real[0], stg_real[1], np.arctan2(stg_real[1] - prev_bot_state[1],
-                                                                         stg_real[0] - prev_bot_state[0])))
+    bot_state = get_rel_state(bot.base.get_state(), init_state)
+    print("bot_state = {}".format(get_rel_state(bot.base.get_state(), init_state)))
+
+    # convert stg real from init frame to global frame
+    stg_real_g = [0.0, 0.0]
+    # 1) orient it to global frame
+    stg_real_g[0], stg_real_g[1], _ = get_rel_state((stg_real[0], stg_real[1], 0),
+                                                    (0.0,0.0,-init_state[2]))
+    # 2) add the offset
+    stg_real_g[0] += init_state[0]
+    stg_real_g[1] += init_state[1]
+    exec = bot.base.go_to_absolute((stg_real_g[0],
+                                    stg_real_g[1],
+                                    np.arctan2(stg_real[1] - prev_bot_state[1],
+                                               stg_real[0] - prev_bot_state[0]) + init_state[2]))
     if not exec:
         # add obstacle in front of  cur location
-        col_map += get_collision_map(bot.base.get_state(), map_builder, obstacle_size=(100, 100))
+        col_map += get_collision_map(get_rel_state(bot.base.get_state(), init_state), map_builder, obstacle_size=(100, 100))
         continue
-    print("bot_state_after = {}".format(bot.base.get_state()))
+    print("bot_state_after = {}".format(get_rel_state(bot.base.get_state(), init_state)))
 
     # TODO: Need to handle if robot get stuck somewhere
-
     # visualize
     if count % 1 == 0:
         plt.clf()
@@ -204,7 +223,7 @@ while not reached:
         plt.plot(bot_map_loc[0], bot_map_loc[1], 'm.')
         plt.plot(bot_loc_list_map[:, 0], bot_loc_list_map[:, 1], 'r--')
 
-        # plt.plot(stg[1], stg[0], 'b*')
+        plt.plot(stg[1], stg[0], 'b*')
 
         # draw heading of robot
         R = np.array([[np.cos(bot_state[2]), np.sin(bot_state[2])],
@@ -223,9 +242,9 @@ while not reached:
 
     # update map
 
-    map_builder.update_map()
+    map_builder.update_map(get_rel_state(bot.base.get_state(), init_state))
     bot_loc_list_map = np.concatenate((bot_loc_list_map,
-                                       np.array([real2map(bot.base.get_state()[:2], map_builder)])))
+                                       np.array([real2map(get_rel_state(bot.base.get_state(), init_state)[:2], map_builder)])))
     prev_bot_state = bot_state
-    # reached = stg[2]
+    #reached = stg[2]
     count += 1
