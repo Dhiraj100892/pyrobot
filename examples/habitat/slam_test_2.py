@@ -12,6 +12,7 @@ import argparse
 from scipy import ndimage
 from copy import deepcopy as copy
 import time
+from math import ceil, floor
 
 cv2 = try_cv2_import()
 # for slam modules
@@ -54,11 +55,13 @@ class Slam(object):
         self.start_vis = False
         self.vis_count = 0
 
+        '''
         # rotate intial to get the whole map
         for _ in range(7):
             self.robot.base.go_to_relative((0,0,np.pi/4))
             self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
                                         self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
+        '''
 
     def set_goal(self, goal):
         """
@@ -114,6 +117,34 @@ class Slam(object):
 
         self.robot_state = self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)
         print("bot_state before executing action = {}".format(self.robot_state))
+
+        # TODO: Need to orient first towards the goal, update map and if goal is not on the collision map then go
+        # orient the robot
+        exec = self.robot.base.go_to_relative((0,
+                                               0,
+                                               np.arctan2(stg_real[1] - self.prev_bot_state[1],
+                                                          stg_real[0] - self.prev_bot_state[0])
+                                               - self.robot_state[2]))
+
+        # update map
+        self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
+                                    self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
+        obstacle = self.map_builder.map[:, :, 1] >= 1.0
+        selem = disk(self.robot_rad / self.map_builder.resolution)
+        traversable = binary_dilation(obstacle, selem) != True
+
+        # add robot collision map to traversable area
+        unknown_region = self.map_builder.map.sum(axis=-1) < 1
+        col_map_unknown = np.logical_and(self.col_map > 0.1, unknown_region)
+        traversable = np.logical_and(traversable, np.logical_not(col_map_unknown))
+
+        # check whether goal is on collision
+        if not np.logical_or.reduce(
+                traversable[floor(self.stg[0]):ceil(self.stg[0]), floor(self.stg[1]):ceil(self.stg[1])],
+                axis=(0, 1)):
+            self.map_builder.map[floor(self.stg[0]):ceil(self.stg[0]), floor(self.stg[1]):ceil(self.stg[1]),1] += 1
+            print("Obstacle in path")
+            return False
 
         # go to the location the robot
         exec = self.robot.base.go_to_absolute((stg_real_g[0],
@@ -211,7 +242,7 @@ class Slam(object):
 
     def vis(self):
         if not self.start_vis:
-            plt.figure(figsize=(20, 20))
+            plt.figure(figsize=(30, 8))
             self.start_vis = True
         plt.clf()
         num_plots = 3
@@ -221,14 +252,19 @@ class Slam(object):
         plt.imshow(self.robot.camera.get_rgb())
 
         # visualize Depth image
+        plt.xticks([])
+        plt.yticks([])
         plt.subplot(1, num_plots, 2)
         plt.imshow(self.robot.camera.get_depth())
 
         # visualize distance to goal & map, robot current location, goal, short term goal, robot path #
+        plt.xticks([])
+        plt.yticks([])
         plt.subplot(1, num_plots, 3)
         # distance to goal & map
-        #plt.imshow(self.planner.fmm_dist, origin='lower')
-        plt.imshow(self.map_builder.map[:, :, 1] >= 1.0, origin='lower')
+        plt.imshow(self.planner.fmm_dist, origin='lower')
+        #plt.imshow(self.map_builder.map[:, :, 1] >= 1.0, origin='lower')
+
         # goal
         plt.plot(self.goal_loc_map[0], self.goal_loc_map[1], 'y*')
         # short term goal
