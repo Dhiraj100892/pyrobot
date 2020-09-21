@@ -262,8 +262,8 @@ class Slam(object):
         plt.yticks([])
         plt.subplot(1, num_plots, 3)
         # distance to goal & map
-        plt.imshow(self.planner.fmm_dist, origin='lower')
-        #plt.imshow(self.map_builder.map[:, :, 1] >= 1.0, origin='lower')
+        #plt.imshow(self.planner.fmm_dist, origin='lower')
+        plt.imshow(self.map_builder.map[:, :, 1] >= 1.0, origin='lower')
 
         # goal
         plt.plot(self.goal_loc_map[0], self.goal_loc_map[1], 'y*')
