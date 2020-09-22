@@ -1,7 +1,5 @@
 import numpy as np
-
 import slam.depth_utils as du
-from IPython import embed
 
 
 class MapBuilder(object):

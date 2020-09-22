@@ -26,20 +26,21 @@ import slam.depth_utils as du
 
 
 class Slam(object):
-    def __init__(self, robot, map_size, resolution, robot_rad, agent_min_z, agent_max_z, save_folder='.tmp'):
+    def __init__(self, robot, map_size, resolution, robot_rad, agent_min_z, agent_max_z,
+                 save_folder='.tmp'):
         self.robot = robot
         self.robot_rad = robot_rad
         self.map_builder = mb(map_size_cm=map_size, resolution=resolution, agent_min_z=agent_min_z,
                               agent_max_z=agent_max_z)
 
         # initialize variable
-        self.init_state = self.robot.base.get_state('odom')
+        self.init_state = self.get_robot_global_state()
         self.prev_bot_state = (0, 0, 0)
         self.col_map = np.zeros((self.map_builder.map.shape[0], self.map_builder.map.shape[1]))
         self.robot_loc_list_map = np.array([self.real2map(
-            self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)[:2])])
+            self.get_rel_state(self.get_robot_global_state(), self.init_state)[:2])])
         self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
-                                    self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
+                                    self.get_rel_state(self.get_robot_global_state(), self.init_state))
 
         # for visualization purpose #
         self.save_folder = save_folder
@@ -55,13 +56,6 @@ class Slam(object):
         self.start_vis = False
         self.vis_count = 0
 
-        '''
-        # rotate intial to get the whole map
-        for _ in range(7):
-            self.robot.base.go_to_relative((0,0,np.pi/4))
-            self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
-                                        self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
-        '''
 
     def set_goal(self, goal):
         """
@@ -96,9 +90,9 @@ class Slam(object):
         self.planner.set_goal(self.goal_loc_map)
 
         # get the short term goal
-        self.robot_map_loc = self.real2map(
-            self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
-        self.stg = self.planner.get_short_term_goal((self.robot_map_loc[1], self.robot_map_loc[0]))
+        robot_map_loc = self.real2map(
+            self.get_rel_state(self.get_robot_global_state(), self.init_state))
+        self.stg = self.planner.get_short_term_goal((robot_map_loc[1], robot_map_loc[0]))
 
         # convert goal from map space to robot space
         stg_real = self.map2real([self.stg[1], self.stg[0]])
@@ -106,17 +100,9 @@ class Slam(object):
         print("stg real = {}".format(stg_real))
 
         # convert stg real from init frame to global frame#
-        stg_real_g = [0.0, 0.0]
-        # 1) orient it to global frame
-        stg_real_g[0], stg_real_g[1], _ = self.get_rel_state(
-            (stg_real[0], stg_real[1], 0), (0.0, 0.0, -self.init_state[2]))
-
-        # 2) add the offset
-        stg_real_g[0] += self.init_state[0]
-        stg_real_g[1] += self.init_state[1]
-
-        self.robot_state = self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)
-        print("bot_state before executing action = {}".format(self.robot_state))
+        stg_real_g = self.get_absolute_goal((stg_real[0], stg_real[1], 0))
+        robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
+        print("bot_state before executing action = {}".format(robot_state))
 
         # TODO: Need to orient first towards the goal, update map and if goal is not on the collision map then go
         # orient the robot
@@ -124,11 +110,12 @@ class Slam(object):
                                                0,
                                                np.arctan2(stg_real[1] - self.prev_bot_state[1],
                                                           stg_real[0] - self.prev_bot_state[0])
-                                               - self.robot_state[2]))
+                                               - robot_state[2]))
 
         # update map
+        robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
         self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
-                                    self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
+                                    robot_state)
         obstacle = self.map_builder.map[:, :, 1] >= 1.0
         selem = disk(self.robot_rad / self.map_builder.resolution)
         traversable = binary_dilation(obstacle, selem) != True
@@ -142,42 +129,62 @@ class Slam(object):
         if not np.logical_or.reduce(
                 traversable[floor(self.stg[0]):ceil(self.stg[0]), floor(self.stg[1]):ceil(self.stg[1])],
                 axis=(0, 1)):
-            self.map_builder.map[floor(self.stg[0]):ceil(self.stg[0]), floor(self.stg[1]):ceil(self.stg[1]),1] += 1
             print("Obstacle in path")
-            return False
+        else:
+            # go to the location the robot
+            exec = self.robot.base.go_to_absolute((stg_real_g[0],
+                                                 stg_real_g[1],
+                                                 np.arctan2(stg_real[1] - self.prev_bot_state[1],
+                                                            stg_real[0] - self.prev_bot_state[0])
+                                                 + self.init_state[2]))
 
-        # go to the location the robot
-        exec = self.robot.base.go_to_absolute((stg_real_g[0],
-                                             stg_real_g[1],
-                                             np.arctan2(stg_real[1] - self.prev_bot_state[1],
-                                                        stg_real[0] - self.prev_bot_state[0])
-                                             + self.init_state[2]))
+        robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
+        print("bot_state after executing action = {}".format(robot_state))
 
-        print("bot_state after executing action = {}".format(
-            self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)))
+        # update robot location list
+        robot_state_map = self.real2map(robot_state[:2])
+        self.robot_loc_list_map = np.concatenate((self.robot_loc_list_map,
+                                                np.array([robot_state_map])))
+        self.prev_bot_state = robot_state
 
         # if robot collides
         if not exec:
             # add obstacle in front of  cur location
             self.col_map += self.get_collision_map(
-                self.get_rel_state(self.robot.base.get_state('odom'), self.init_state),
+                robot_state,
                 obstacle_size=(100, 100))
 
-        # update map
-        self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
-                                    self.get_rel_state(self.robot.base.get_state('odom'), self.init_state))
+        # return True if robot reaches within threshold
+        if np.linalg.norm(np.array(robot_state[:2]) - np.array(self.goal_loc[:2]))*100.0 \
+                < np.sqrt(2)*self.map_builder.resolution:
+            self.robot.base.go_to_absolute(self.get_absolute_goal(self.goal_loc))
+            print("robot has reached goal")
+            return True
 
-        # update robot location list
-        self.robot_loc_list_map = np.concatenate((self.robot_loc_list_map,
-                                                np.array([
-                                                    self.real2map(
-                                                        self.get_rel_state(self.robot.base.get_state('odom'),
-                                                                           self.init_state)[:2]
-                                                    )])))
-        self.prev_bot_state = self.robot_state
+        # return False if goal is not reachable
+        if not traversable[int(self.goal_loc_map[1]), int(self.goal_loc_map[0])]:
+            print("Goal Not reachable")
+            return False
+        if self.planner.fmm_dist[int(robot_state_map[1]), int(robot_state_map[0])] >= \
+                self.planner.fmm_dist.max():
+            print("whole area is explored")
+            return False
+        return None
 
-        # return whether its reachable or its already reached or not retched
-        return self.stg[2]
+    def get_absolute_goal(self, loc):
+        """
+        Transfer loc in init robot frame to global frame
+        :param loc:
+        :return:
+        """
+        # 1) orient goal to global frame
+        loc = self.get_rel_state(loc, (0.0, 0.0, -self.init_state[2]))
+
+        # 2) add the offset
+        loc = list(loc)
+        loc[0] += self.init_state[0]
+        loc[1] += self.init_state[1]
+        return loc
 
     def real2map(self, loc):
         # converts real location to map location
@@ -186,7 +193,7 @@ class Slam(object):
         map_loc = du.transform_pose(loc, (self.map_builder.map_size_cm / 2.0,
                                           self.map_builder.map_size_cm / 2.0, np.pi / 2.0))
         map_loc /= self.map_builder.resolution
-        map_loc = map_loc.reshape((3))
+        map_loc = map_loc.reshape(3)
         return map_loc[:2]
 
     def map2real(self, loc):
@@ -197,12 +204,12 @@ class Slam(object):
                                       self.map_builder.map.shape[1] / 2.0, -np.pi / 2.0))
         real_loc *= self.map_builder.resolution  # to take into account map resolution
         real_loc /= 100  # to convert from cm to meter
-        real_loc = real_loc.reshape((3))
+        real_loc = real_loc.reshape(3)
         return real_loc[:2]
 
     def get_collision_map(self, state, obstacle_size=(20, 20)):
 
-        # get the collision map for robot collison based on sensor reading
+        # get the collision map for robot collision based on sensor reading
         col_map = np.zeros((self.map_builder.map.shape[0], self.map_builder.map.shape[1]))
         map_state = self.real2map([state[0], state[1]])
         map_state = [int(x) for x in map_state]
@@ -240,12 +247,33 @@ class Slam(object):
         rel_x, rel_y = np.matmul(R, np.array([rel_X, rel_Y]).reshape(-1, 1))
         return rel_x[0], rel_y[0], cur_state[2] - init_state[2]
 
+    def get_robot_global_state(self):
+        return self.robot.base.get_state('odom')
+
     def vis(self):
+        def vis_env_agent_state():
+            # goal
+            plt.plot(self.goal_loc_map[0], self.goal_loc_map[1], 'y*')
+            # short term goal
+            plt.plot(self.stg[1], self.stg[0], 'b*')
+            plt.plot(self.robot_loc_list_map[:, 0], self.robot_loc_list_map[:, 1], 'r--')
+
+            # draw heading of robot
+            robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
+            R = np.array([[np.cos(robot_state[2]), np.sin(robot_state[2])],
+                          [-np.sin(robot_state[2]), np.cos(robot_state[2])]])
+            global_tri_vertex = np.matmul(R.T, self.triangle_vertex.T).T
+            map_global_tra_vertex = np.array(
+                [self.real2map((x[0] + robot_state[0], x[1] + robot_state[1]))
+                 for x in global_tri_vertex])
+            t1 = plt.Polygon(map_global_tra_vertex, color='red')
+            plt.gca().add_patch(t1)
+
         if not self.start_vis:
-            plt.figure(figsize=(30, 8))
+            plt.figure(figsize=(40, 8))
             self.start_vis = True
         plt.clf()
-        num_plots = 3
+        num_plots = 4
 
         # visualize RGB image
         plt.subplot(1, num_plots, 1)
@@ -261,26 +289,14 @@ class Slam(object):
         plt.xticks([])
         plt.yticks([])
         plt.subplot(1, num_plots, 3)
-        # distance to goal & map
-        #plt.imshow(self.planner.fmm_dist, origin='lower')
+        plt.imshow(self.planner.fmm_dist, origin='lower')
+        vis_env_agent_state()
+
+        plt.xticks([])
+        plt.yticks([])
+        plt.subplot(1, num_plots, 4)
         plt.imshow(self.map_builder.map[:, :, 1] >= 1.0, origin='lower')
-
-        # goal
-        plt.plot(self.goal_loc_map[0], self.goal_loc_map[1], 'y*')
-        # short term goal
-        plt.plot(self.stg[1], self.stg[0], 'b*')
-        plt.plot(self.robot_loc_list_map[:, 0], self.robot_loc_list_map[:, 1], 'r--')
-
-        # draw heading of robot
-        robot_state = self.get_rel_state(self.robot.base.get_state('odom'), self.init_state)
-        R = np.array([[np.cos(robot_state[2]), np.sin(robot_state[2])],
-                      [-np.sin(robot_state[2]), np.cos(robot_state[2])]])
-        global_tri_vertex = np.matmul(R.T, self.triangle_vertex.T).T
-        map_global_tra_vertex = np.array(
-            [self.real2map((x[0] + robot_state[0], x[1] + robot_state[1]))
-             for x in global_tri_vertex])
-        t1 = plt.Polygon(map_global_tra_vertex, color='red')
-        plt.gca().add_patch(t1)
+        vis_env_agent_state()
 
         plt.gca().set_aspect('equal', adjustable='box')
         plt.draw()
@@ -304,9 +320,9 @@ def main(args):
 
     slam = Slam(robot, args.map_size, args.resolution, args.robot_rad, args.agent_min_z, args.agent_max_z)
     slam.set_goal(args.goal)
-    while True:
-        slam.take_step(step_size=args.step_size)
+    while slam.take_step(step_size=args.step_size) is None:
         slam.vis()
+    slam.vis()
 
 
 if __name__ == "__main__":
@@ -314,7 +330,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--robot", help="Name of the robot [locobot, habitat]", type=str, default='habitat'
     )
-    parser.add_argument("--goal", help="goal the robot should reach", nargs='+', type=float)
+    parser.add_argument("--goal", help="goal the robot should reach in metric unit", nargs='+', type=float)
     parser.add_argument("--map_size", help="lenght and with of map in cm", type=float, default=4000)
     parser.add_argument("--resolution", help="per pixel resolution of map in cm", type=float, default=5)
     parser.add_argument("--step_size", help="step size in cm", type=float, default=25)
