@@ -26,14 +26,18 @@ import slam.depth_utils as du
 
 
 class Slam(object):
-    def __init__(self, robot, map_size, resolution, robot_rad, agent_min_z, agent_max_z,
+    def __init__(self, robot, robot_name, map_size, resolution, robot_rad, agent_min_z, agent_max_z,
                  save_folder='.tmp'):
         self.robot = robot
+        self.robot_name = robot_name
         self.robot_rad = robot_rad
         self.map_builder = mb(map_size_cm=map_size, resolution=resolution, agent_min_z=agent_min_z,
                               agent_max_z=agent_max_z)
 
         # initialize variable
+        robot.camera.reset()
+        time.sleep(2)
+
         self.init_state = self.get_robot_global_state()
         self.prev_bot_state = (0, 0, 0)
         self.col_map = np.zeros((self.map_builder.map.shape[0], self.map_builder.map.shape[1]))
@@ -56,6 +60,14 @@ class Slam(object):
         self.start_vis = False
         self.vis_count = 0
 
+        # for bumper check of locobot
+        if self.robot_name == "locobot":
+            from locobot_bumper_check import BumperCallbacks
+            self.bumper_state = BumperCallbacks()
+            # for mapping refer to http://docs.ros.org/groovy/api/kobuki_msgs/html/msg/BumperEvent.html
+            self.bumper_num2ang = {0:np.deg2rad(30),
+                                   1: 0,
+                                   2:np.deg2rad(-30)}
 
     def set_goal(self, goal):
         """
@@ -153,6 +165,13 @@ class Slam(object):
             self.col_map += self.get_collision_map(
                 robot_state,
                 obstacle_size=(100, 100))
+        # in case of locobot we need to check bumper state
+        if self.robot_name == "locobot":
+            if len(self.bumper_state.bumper_state) > 0:
+                for bumper_num in self.bumper_state.bumper_state:
+                    self.col_map += self.get_collision_map(
+                        (robot_state[0], robot_state[1], robot_state[2] + self.bumper_num2ang[bumper_num]),
+                        obstacle_size=(100, 100))
 
         # return True if robot reaches within threshold
         if np.linalg.norm(np.array(robot_state[:2]) - np.array(self.goal_loc[:2]))*100.0 \
@@ -316,9 +335,8 @@ def main(args):
         robot = Robot("habitat", common_config=common_config)
     elif args.robot == 'locobot':
         robot = Robot("locobot")
-        robot.camera.reset()
 
-    slam = Slam(robot, args.map_size, args.resolution, args.robot_rad, args.agent_min_z, args.agent_max_z)
+    slam = Slam(robot, args.robot, args.map_size, args.resolution, args.robot_rad, args.agent_min_z, args.agent_max_z)
     slam.set_goal(args.goal)
     while slam.take_step(step_size=args.step_size) is None:
         slam.vis()
