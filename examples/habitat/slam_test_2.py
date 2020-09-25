@@ -163,16 +163,16 @@ class Slam(object):
         if not exec:
             # add obstacle in front of  cur location
             self.col_map += self.get_collision_map(
-                robot_state,
-                obstacle_size=(100, 100))
+                robot_state)
+            print("Hit Obstacle in path")
         # in case of locobot we need to check bumper state
         if self.robot_name == "locobot":
             if len(self.bumper_state.bumper_state) > 0:
                 for bumper_num in self.bumper_state.bumper_state:
                     self.col_map += self.get_collision_map(
-                        (robot_state[0], robot_state[1], robot_state[2] + self.bumper_num2ang[bumper_num]),
-                        obstacle_size=(100, 100))
-
+                        (robot_state[0], robot_state[1], robot_state[2] + self.bumper_num2ang[bumper_num]))
+            print("Hit Obstacle in path")
+            
         # return True if robot reaches within threshold
         if np.linalg.norm(np.array(robot_state[:2]) - np.array(self.goal_loc[:2]))*100.0 \
                 < np.sqrt(2)*self.map_builder.resolution:
@@ -226,7 +226,11 @@ class Slam(object):
         real_loc = real_loc.reshape(3)
         return real_loc[:2]
 
-    def get_collision_map(self, state, obstacle_size=(20, 20)):
+    def get_collision_map(self, state, obstacle_size=None):
+
+        if obstacle_size is None:
+            obstacle_size = (2*int(self.robot_rad/self.map_builder.resolution),
+                             2*int(self.robot_rad/self.map_builder.resolution))
 
         # get the collision map for robot collision based on sensor reading
         col_map = np.zeros((self.map_builder.map.shape[0], self.map_builder.map.shape[1]))
@@ -250,7 +254,6 @@ class Slam(object):
 
         # pad the col_map
         col_map = np.pad(col_map, pad_len)
-
         # paste the crop robot location shifted by pad len
         col_map[map_state[1] - pad_len + pad_len: map_state[1] + pad_len + pad_len,
         map_state[0] - pad_len + pad_len: map_state[0] + pad_len + pad_len] = cropped_map
