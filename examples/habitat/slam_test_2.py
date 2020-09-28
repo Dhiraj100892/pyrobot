@@ -164,15 +164,14 @@ class Slam(object):
         if not exec:
             # add obstacle in front of  cur location
             self.col_map += self.get_collision_map(
-                robot_state, step_size)
+                robot_state)
             print("Hit Obstacle in path")
         # in case of locobot we need to check bumper state
         if self.robot_name == "locobot":
             if len(self.bumper_state.bumper_state) > 0:
                 for bumper_num in self.bumper_state.bumper_state:
                     self.col_map += self.get_collision_map(
-                        (robot_state[0], robot_state[1], robot_state[2] + self.bumper_num2ang[bumper_num]),
-                    step_size)
+                        (robot_state[0], robot_state[1], robot_state[2] + self.bumper_num2ang[bumper_num]))
             print("Hit Obstacle in path")
             
         # return True if robot reaches within threshold
@@ -228,7 +227,7 @@ class Slam(object):
         real_loc = real_loc.reshape(3)
         return real_loc[:2]
 
-    def get_collision_map(self, state, step_size, obstacle_size=None):
+    def get_collision_map(self, state, obstacle_size=None):
 
         if obstacle_size is None:
             obstacle_size = (2*int(self.robot_rad/self.map_builder.resolution),
