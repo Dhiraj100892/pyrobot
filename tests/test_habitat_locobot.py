@@ -14,6 +14,7 @@ from pyrobot import Robot
 from pyrobot.locobot.base_control_utils import _get_absolute_pose
 from pyrobot.locobot.bicycle_model import wrap_theta
 from habitat_sim import AgentState, SixDOFPose
+import time
 
 
 @pytest.fixture(scope="module")
@@ -216,6 +217,8 @@ def test_absolute_position_control(
 ):
     bot = create_robot
     bot.base.go_to_absolute(posn)
+    while bot.base.moving:
+        time.sleep(1)
     end_state = np.array(bot.base.get_state("odom"))
 
     dist = np.linalg.norm(end_state[:2] - posn[:2])
@@ -233,6 +236,8 @@ def test_relative_position_control(
     start_state = np.array(bot.base.get_state("odom"))
     desired_target = _get_absolute_pose(posn, start_state)
     bot.base.go_to_relative(posn)
+    while bot.base.moving:
+        time.sleep(1)
     end_state = np.array(bot.base.get_state("odom"))
 
     dist = np.linalg.norm(end_state[:2] - desired_target[:2])
