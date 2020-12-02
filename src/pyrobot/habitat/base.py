@@ -265,6 +265,9 @@ class LoCoBotBase(object):
         if abs(rel_yaw) < 1e-4:
             rel_yaw = 0
 
+        # convert rel yaw from -pi to pi
+        rel_yaw = np.arctan2(np.sin(rel_yaw), np.cos(rel_yaw))
+
         action_name = "turn_left"
         if rel_yaw < 0.0:
             action_name = "turn_right"
