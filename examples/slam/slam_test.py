@@ -85,6 +85,8 @@ class Slam(object):
                     os.makedirs(self.save_folder)
         self.start_vis = False
         self.vis_count = 0
+        self.oreint_robot = True
+        self.start_exec = False
 
         # for bumper check of locobot
         if self.robot_name == "locobot":
@@ -120,107 +122,111 @@ class Slam(object):
         ):
             print("Slam: Robot is still moving")
             return None
-        # explode the map by robot shape
-        obstacle = self.map_builder.map[:, :, 1] >= 1.0
-        selem = disk(self.robot_rad / self.map_builder.resolution)
-        traversable = binary_dilation(obstacle, selem) != True
+        if self.oreint_robot:
+            # explode the map by robot shape
+            obstacle = self.map_builder.map[:, :, 1] >= 1.0
+            selem = disk(self.robot_rad / self.map_builder.resolution)
+            traversable = binary_dilation(obstacle, selem) != True
 
-        # add robot collision map to traversable area
-        unknown_region = self.map_builder.map.sum(axis=-1) < 1
-        col_map_unknown = np.logical_and(self.col_map > 0.1, unknown_region)
-        traversable = np.logical_and(traversable, np.logical_not(col_map_unknown))
+            # add robot collision map to traversable area
+            unknown_region = self.map_builder.map.sum(axis=-1) < 1
+            col_map_unknown = np.logical_and(self.col_map > 0.1, unknown_region)
+            traversable = np.logical_and(traversable, np.logical_not(col_map_unknown))
 
-        # call the planner
-        self.planner = FMMPlanner(traversable,
-                                  step_size=int(step_size / self.map_builder.resolution))
+            # call the planner
+            self.planner = FMMPlanner(traversable,
+                                    step_size=int(step_size / self.map_builder.resolution))
 
-        # set the goal
-        self.planner.set_goal(self.goal_loc_map)
+            # set the goal
+            self.planner.set_goal(self.goal_loc_map)
 
-        # get the short term goal
-        robot_map_loc = self.real2map(
-            self.get_rel_state(self.get_robot_global_state(), self.init_state))
-        self.stg = self.planner.get_short_term_goal((robot_map_loc[1], robot_map_loc[0]))
+            # get the short term goal
+            robot_map_loc = self.real2map(
+                self.get_rel_state(self.get_robot_global_state(), self.init_state))
+            self.stg = self.planner.get_short_term_goal((robot_map_loc[1], robot_map_loc[0]))
 
-        # convert goal from map space to robot space
-        stg_real = self.map2real([self.stg[1], self.stg[0]])
-        print("stg = {}".format(self.stg))
-        print("stg real = {}".format(stg_real))
+            # convert goal from map space to robot space
+            self.stg_real = self.map2real([self.stg[1], self.stg[0]])
+        
+            # convert stg real from init frame to global frame#
+            self.stg_real_g = self.get_absolute_goal((self.stg_real[0], self.stg_real[1], 0))
+            robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
+            if self.start_exec:
+                robot_state_map = self.real2map(robot_state[:2])
+                self.robot_loc_list_map = np.concatenate((self.robot_loc_list_map,
+                                                        np.array([robot_state_map])))
+                self.prev_bot_state = robot_state
+                print("bot_state after executing action = {}".format(robot_state))
 
-        # convert stg real from init frame to global frame#
-        stg_real_g = self.get_absolute_goal((stg_real[0], stg_real[1], 0))
-        robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
-        print("bot_state before executing action = {}".format(robot_state))
+            print("stg = {}".format(self.stg))
+            print("stg real = {}".format(self.stg_real))    
+            print("bot_state before executing action = {}".format(robot_state))
 
-        # orient the robot
-        exec = self.robot.base.go_to_relative((0,
-                                               0,
-                                               np.arctan2(stg_real[1] - self.prev_bot_state[1],
-                                                          stg_real[0] - self.prev_bot_state[0])
-                                               - robot_state[2]))
-
-        # update map
-        robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
-        self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
-                                    robot_state)
-        obstacle = self.map_builder.map[:, :, 1] >= 1.0
-        selem = disk(self.robot_rad / self.map_builder.resolution)
-        traversable = binary_dilation(obstacle, selem) != True
-
-        # add robot collision map to traversable area
-        unknown_region = self.map_builder.map.sum(axis=-1) < 1
-        col_map_unknown = np.logical_and(self.col_map > 0.1, unknown_region)
-        traversable = np.logical_and(traversable, np.logical_not(col_map_unknown))
-
-        # check whether goal is on collision
-        if not np.logical_or.reduce(
-                traversable[floor(self.stg[0]):ceil(self.stg[0]), floor(self.stg[1]):ceil(self.stg[1])],
-                axis=(0, 1)):
-            print("Obstacle in path")
+            # orient the robot
+            exec = self.robot.base.go_to_relative((0,
+                                                0,
+                                                np.arctan2(self.stg_real[1] - self.prev_bot_state[1],
+                                                            self.stg_real[0] - self.prev_bot_state[0])
+                                                - robot_state[2]))
+            self.oreint_robot = False
+            self.start_exec = True
         else:
-            # go to the location the robot
-            exec = self.robot.base.go_to_absolute((stg_real_g[0],
-                                                 stg_real_g[1],
-                                                 np.arctan2(stg_real[1] - self.prev_bot_state[1],
-                                                            stg_real[0] - self.prev_bot_state[0])
-                                                 + self.init_state[2]))
+            # update map
+            robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
+            self.map_builder.update_map(self.robot.camera.get_current_pcd(in_cam=False)[0],
+                                        robot_state)
+            obstacle = self.map_builder.map[:, :, 1] >= 1.0
+            selem = disk(self.robot_rad / self.map_builder.resolution)
+            traversable = binary_dilation(obstacle, selem) != True
 
-        robot_state = self.get_rel_state(self.get_robot_global_state(), self.init_state)
-        print("bot_state after executing action = {}".format(robot_state))
+            # add robot collision map to traversable area
+            unknown_region = self.map_builder.map.sum(axis=-1) < 1
+            col_map_unknown = np.logical_and(self.col_map > 0.1, unknown_region)
+            traversable = np.logical_and(traversable, np.logical_not(col_map_unknown))
 
-        # update robot location list
-        robot_state_map = self.real2map(robot_state[:2])
-        self.robot_loc_list_map = np.concatenate((self.robot_loc_list_map,
-                                                np.array([robot_state_map])))
-        self.prev_bot_state = robot_state
+            # check whether goal is on collision
+            if not np.logical_or.reduce(
+                    traversable[floor(self.stg[0]):ceil(self.stg[0]), floor(self.stg[1]):ceil(self.stg[1])],
+                    axis=(0, 1)):
+                print("Obstacle in path")
+                exec = False
+            else:
+                # go to the location the robot
+                exec = self.robot.base.go_to_absolute((self.stg_real_g[0],
+                                                    self.stg_real_g[1],
+                                                    np.arctan2(self.stg_real[1] - self.prev_bot_state[1],
+                                                                self.stg_real[0] - self.prev_bot_state[0])
+                                                    + self.init_state[2]))
+            self.oreint_robot = True
+            
 
-        # if robot collides
-        if not exec:
-            # add obstacle in front of  cur location
-            self.col_map += self.get_collision_map(
-                robot_state)
-        # in case of locobot we need to check bumper state
-        if self.robot_name == "locobot":
-            if len(self.bumper_state.bumper_state) > 0:
-                for bumper_num in self.bumper_state.bumper_state:
-                    self.col_map += self.get_collision_map(
-                        (robot_state[0], robot_state[1], robot_state[2] + self.bumper_num2ang[bumper_num]))
+            # if robot collides
+            if not exec:
+                # add obstacle in front of  cur location
+                self.col_map += self.get_collision_map(
+                    robot_state)
+            # in case of locobot we need to check bumper state
+            if self.robot_name == "locobot":
+                if len(self.bumper_state.bumper_state) > 0:
+                    for bumper_num in self.bumper_state.bumper_state:
+                        self.col_map += self.get_collision_map(
+                            (robot_state[0], robot_state[1], robot_state[2] + self.bumper_num2ang[bumper_num]))
 
-        # return True if robot reaches within threshold
-        if np.linalg.norm(np.array(robot_state[:2]) - np.array(self.goal_loc[:2]))*100.0 \
-                < np.sqrt(2)*self.map_builder.resolution:
-            self.robot.base.go_to_absolute(self.get_absolute_goal(self.goal_loc))
-            print("robot has reached goal")
-            return True
+            # return True if robot reaches within threshold
+            if np.linalg.norm(np.array(robot_state[:2]) - np.array(self.goal_loc[:2]))*100.0 \
+                    < np.sqrt(2)*self.map_builder.resolution:
+                self.robot.base.go_to_absolute(self.get_absolute_goal(self.goal_loc))
+                print("robot has reached goal")
+                return True
 
-        # return False if goal is not reachable
-        if not traversable[int(self.goal_loc_map[1]), int(self.goal_loc_map[0])]:
-            print("Goal Not reachable")
-            return False
-        if self.planner.fmm_dist[int(robot_state_map[1]), int(robot_state_map[0])] >= \
-                self.planner.fmm_dist.max():
-            print("whole area is explored")
-            return False
+            # return False if goal is not reachable
+            if not traversable[int(self.goal_loc_map[1]), int(self.goal_loc_map[0])]:
+                print("Goal Not reachable")
+                return False
+            if self.planner.fmm_dist[int(self.stg[0]), int(self.stg[1])] >= \
+                    self.planner.fmm_dist.max():
+                print("whole area is explored")
+                return False
         return None
 
     def get_absolute_goal(self, loc):
