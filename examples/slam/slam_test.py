@@ -113,6 +113,13 @@ class Slam(object):
         :param step_size:
         :return:
         """
+        if (
+            self.robot_name == "habitat"
+            and hasattr(self.robot.base, "moving")
+            and self.robot.base.moving
+        ):
+            print("Slam: Robot is still moving")
+            return None
         # explode the map by robot shape
         obstacle = self.map_builder.map[:, :, 1] >= 1.0
         selem = disk(self.robot_rad / self.map_builder.resolution)
